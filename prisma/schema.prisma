@@ -1,0 +1,237 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  clerkId       String    @unique
+  email         String    @unique
+  name          String?
+  avatar        String?
+  role          String    @default("PARENT")
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  parentProfile   ParentProfile?
+  teacherProfile  TeacherProfile?
+  sentRequests    MatchRequest[] @relation("RequestSender")
+  receivedRequests MatchRequest[] @relation("RequestReceiver")
+  teacherApplications TeacherApplication[] @relation("TeacherApplications")
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model ParentProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  studentName     String?  // Child's name
+  grade           String?
+  subjects        String?  // JSON string of subject needs
+  budget          Int?     // Budget in yen per hour
+  prefecture      String?  // 都道府県
+  city            String?  // 市区町村
+  nearestStation  String?  // 最寄駅
+  description     String?
+  learningGoals   String?
+  preferredSchedule String? // JSON object with schedule preferences
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("parent_profiles")
+}
+
+// 生徒プロフィール（独立したエンティティ）
+model StudentProfile {
+  id              String   @id @default(cuid())
+  slug            String   @unique // SEO用のslug
+  name            String?  // 生徒名（匿名可）
+  displayName     String   // 表示名（例：「中学2年生のAさん」）
+  grade           String   // 学年
+  subjects        String   // JSON string of required subjects
+  budget          Int?     // 希望時給
+  prefecture      String   // 都道府県
+  city            String   // 市区町村
+  nearestStation  String?  // 最寄駅
+  description     String   // 詳細説明・学習目標
+  preferredGender String?  // 希望教師性別
+  preferredSchedule String // JSON object with schedule preferences
+  contactInfo     String?  // 連絡先情報（暗号化）
+  isActive        Boolean  @default(true)
+  viewCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  jobPostings     JobPosting[] @relation("StudentJobPostings")
+  applications    TeacherApplication[]
+
+  @@map("student_profiles")
+}
+
+// 求人投稿（家庭教師を募集）
+model JobPosting {
+  id              String   @id @default(cuid())
+  studentId       String
+  title           String   // 求人タイトル
+  subjects        String   // JSON array of required subjects
+  hourlyRate      Int?     // 提示時給
+  prefecture      String   // 都道府県
+  city            String   // 市区町村
+  nearestStation  String?  // 最寄駅
+  description     String   // 詳細説明
+  requirements    String?  // 応募要件
+  schedule        String   // JSON object with schedule
+  deadline        DateTime? // 応募締切
+  status          String   @default("ACTIVE") // ACTIVE, CLOSED, FILLED
+  viewCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  student       StudentProfile @relation("StudentJobPostings", fields: [studentId], references: [id], onDelete: Cascade)
+  applications  TeacherApplication[]
+
+  @@map("job_postings")
+}
+
+// 教師の求人応募
+model TeacherApplication {
+  id          String   @id @default(cuid())
+  jobId       String
+  teacherId   String
+  studentId   String
+  message     String   // 応募メッセージ
+  proposedRate Int?    // 提案時給
+  status      String   @default("PENDING") // PENDING, ACCEPTED, REJECTED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  job       JobPosting     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  teacher   User           @relation("TeacherApplications", fields: [teacherId], references: [id])
+  student   StudentProfile @relation(fields: [studentId], references: [id])
+
+  @@map("teacher_applications")
+}
+
+model TeacherProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  subjects        String?  // JSON string of subject IDs
+  hourlyRate      Int?     // Rate in yen per hour
+  experience      Int?     // Years of experience
+  education       String?  // JSON string of education history
+  certifications  String?  // JSON string of certifications
+  description     String?
+  availability    String?  // JSON object with availability
+  rating          Float?   @default(0)
+  reviewCount     Int      @default(0)
+  isVerified      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("teacher_profiles")
+}
+
+model Subject {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  category    String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("subjects")
+}
+
+// 承認フロー型マッチング
+model MatchRequest {
+  id          String        @id @default(cuid())
+  parentId    String        // 依頼者（親）
+  teacherId   String        // 対象教師
+  status      String        @default("REQUESTED")
+  feeAmount   Int?          // 手数料金額
+  message     String?       // 依頼メッセージ
+  adminNotes  String?       // 運営メモ
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  parent   User     @relation("RequestSender", fields: [parentId], references: [id])
+  teacher  User     @relation("RequestReceiver", fields: [teacherId], references: [id])
+  payment  Payment?
+  notifications Notification[]
+  auditLogs AuditLog[]
+
+  @@map("match_requests")
+}
+
+// 通知管理
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  requestId String?
+  type      String
+  payload   String           // JSON data
+  sentAt    DateTime?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user    User          @relation(fields: [userId], references: [id])
+  request MatchRequest? @relation(fields: [requestId], references: [id])
+
+  @@map("notifications")
+}
+
+// 決済管理
+model Payment {
+  id               String        @id @default(cuid())
+  requestId        String        @unique
+  stripeSessionId  String?
+  amount           Int           // 支払い金額
+  status           String        @default("PENDING")
+  paidAt           DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  request MatchRequest @relation(fields: [requestId], references: [id])
+
+  @@map("payments")
+}
+
+// 操作ログ（30日保管）
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  requestId String?
+  action    String   // 操作内容
+  details   String?  // JSON詳細
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user    User?         @relation(fields: [userId], references: [id])
+  request MatchRequest? @relation(fields: [requestId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Enums are represented as strings in SQLite
+// UserRole: "PARENT" | "TEACHER" | "ADMIN"
+// RequestStatus: "REQUESTED" | "ACCEPTED" | "REJECTED" | "PAID" | "CANCELLED"
+// NotificationType: "EMAIL" | "LINE" | "SYSTEM"
+// PaymentStatus: "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED"
