@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/blog/(.*)",
-      "destination": "http://85.131.209.48/blog/$1"
+      "source": "/blog/:path*",
+      "destination": "https://katekyotsunagu.com/blog/:path*"
     }
   ]
 }
